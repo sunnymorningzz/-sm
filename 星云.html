@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>3D 粒子星云 - 手势与形态</title>
+    <style>
+        :root {
+            --primary: #00f2fe;
+            --accent: #4facfe;
+            --bg: #050505;
+        }
+        
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: var(--bg); 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: white;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* UI Container */
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom) 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .header {
+            pointer-events: auto;
+            margin-top: 10px;
+        }
+        h1 { 
+            margin: 0; 
+            font-size: 1.2rem; 
+            letter-spacing: 1px; 
+            text-transform: uppercase; 
+            background: linear-gradient(90deg, var(--primary), var(--accent)); 
+            -webkit-background-clip: text; 
+            -webkit-text-fill-color: transparent; 
+        }
+        .status { font-size: 0.7rem; opacity: 0.8; margin-top: 4px; color: var(--primary); font-weight: 500; }
+
+        /* Controls Panel */
+        .controls {
+            position: absolute;
+            top: 60px;
+            right: 15px;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+            max-width: 180px;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            width: 100%;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .btn:active { transform: scale(0.95); background: rgba(0, 242, 254, 0.2); }
+        .btn.active { background: rgba(0, 242, 254, 0.3); border-color: var(--primary); box-shadow: 0 0 15px rgba(0, 242, 254, 0.3); }
+
+        .input-group {
+            display: flex;
+            gap: 4px;
+            background: rgba(0,0,0,0.4);
+            padding: 4px;
+            border-radius: 12px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        input[type="text"] {
+            background: transparent;
+            border: none;
+            color: white;
+            outline: none;
+            padding: 4px 8px;
+            width: 60%;
+            font-size: 11px;
+        }
+
+        /* Camera Viewport */
+        #camera-preview {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 100px;
+            height: 75px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transform: scaleX(-1);
+            opacity: 0.9;
+            pointer-events: auto;
+            display: none;
+            background: #000;
+            object-fit: cover;
+            z-index: 5;
+        }
+        
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.5s ease;
+        }
+        .loader {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(0, 242, 254, 0.1);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay">
+        <div class="loader"></div>
+        <p style="color: var(--primary); margin-top: 15px; font-size: 0.8rem;">正在初始化星云引擎...</p>
+    </div>
+
+    <div id="ui-container">
+        <div class="header">
+            <h1>Nebula AI Mobile</h1>
+            <div class="status" id="gesture-status">等待感应启动</div>
+        </div>
+
+        <div class="controls">
+            <button class="btn" id="btn-cam" onclick="toggleCamera()">📷 开启手势感应</button>
+            <div class="input-group">
+                <input type="text" id="text-input" placeholder="输入文字" value="DREAM">
+                <button class="btn" style="width: auto;" onclick="updateShape('TEXT')">生成</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; width: 100%;">
+                <button class="btn" onclick="updateShape('SPHERE')">球体</button>
+                <button class="btn" onclick="updateShape('CUBE')">魔方</button>
+            </div>
+            <button class="btn" onclick="updateShape('TORUS')">星环</button>
+            
+            <div style="height: 5px;"></div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; width: 100%;">
+                <button class="btn" style="padding: 10px 0;" onclick="changeColor('CYAN')">青</button>
+                <button class="btn" style="padding: 10px 0;" onclick="changeColor('FIRE')">红</button>
+                <button class="btn" style="padding: 10px 0;" onclick="changeColor('GOLD')">金</button>
+            </div>
+        </div>
+    </div>
+
+    <video id="camera-preview" playsinline></video>
+
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script>
+        let scene, camera, renderer, controls, points;
+        let particleCount = 12000;
+        let geometry, material;
+        let targetPositions, currentPositions;
+        
+        let dispersionForce = 0; 
+        let isCameraActive = false;
+        let isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Init System
+        function init() {
+            // Mobile Optimization
+            particleCount = isMobile ? 5000 : 12000;
+
+            targetPositions = new Float32Array(particleCount * 3);
+            currentPositions = new Float32Array(particleCount * 3);
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.0008);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 5000);
+            camera.position.z = isMobile ? 1500 : 1000;
+
+            renderer = new THREE.WebGLRenderer({ antialias: !isMobile, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.8;
+            controls.enablePan = false;
+
+            createParticles();
+            updateShape('SPHERE');
+
+            window.addEventListener('resize', onWindowResize);
+            
+            setTimeout(() => {
+                document.getElementById('loading-overlay').style.opacity = '0';
+                setTimeout(() => document.getElementById('loading-overlay').style.display = 'none', 500);
+            }, 1000);
+
+            animate();
+        }
+
+        function createParticles() {
+            geometry = new THREE.BufferGeometry();
+            const colors = new Float32Array(particleCount * 3);
+            const color = new THREE.Color();
+
+            for (let i = 0; i < particleCount; i++) {
+                currentPositions[i*3] = (Math.random() - 0.5) * 3000;
+                currentPositions[i*3+1] = (Math.random() - 0.5) * 3000;
+                currentPositions[i*3+2] = (Math.random() - 0.5) * 3000;
+
+                color.setHSL(0.55 + Math.random() * 0.1, 0.8, 0.6);
+                colors[i*3] = color.r;
+                colors[i*3+1] = color.g;
+                colors[i*3+2] = color.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            material = new THREE.PointsMaterial({
+                size: isMobile ? 10 : 6,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.7,
+                blending: THREE.AdditiveBlending,
+                sizeAttenuation: true
+            });
+
+            points = new THREE.Points(geometry, material);
+            scene.add(points);
+        }
+
+        function updateShape(type) {
+            const tempPositions = [];
+            
+            if (type === 'SPHERE') {
+                for (let i = 0; i < particleCount; i++) {
+                    const r = 500 * Math.pow(Math.random(), 0.5);
+                    const theta = Math.random() * 2 * Math.PI;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    tempPositions.push(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+                }
+            } else if (type === 'CUBE') {
+                const size = 700;
+                for (let i = 0; i < particleCount; i++) {
+                    tempPositions.push((Math.random() - 0.5) * size, (Math.random() - 0.5) * size, (Math.random() - 0.5) * size);
+                }
+            } else if (type === 'TORUS') {
+                const R = 450; const r = 120;
+                for (let i = 0; i < particleCount; i++) {
+                    const u = Math.random() * Math.PI * 2;
+                    const v = Math.random() * Math.PI * 2;
+                    tempPositions.push((R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u), r * Math.sin(v));
+                }
+            } else if (type === 'TEXT') {
+                const text = document.getElementById('text-input').value || "HELLO";
+                const p = sampleTextParticles(text);
+                for (let i = 0; i < particleCount; i++) {
+                    const s = p[i % p.length];
+                    tempPositions.push(s.x, s.y, (Math.random() - 0.5) * 60);
+                }
+            }
+
+            for (let i = 0; i < particleCount * 3; i++) {
+                targetPositions[i] = tempPositions[i] || 0;
+            }
+        }
+
+        function sampleTextParticles(text) {
+            canvas.width = 1000; canvas.height = 400;
+            ctx.fillStyle = '#000'; ctx.fillRect(0,0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff'; ctx.font = `bold 220px sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text.toUpperCase(), canvas.width/2, canvas.height/2);
+
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const pts = [];
+            const step = isMobile ? 6 : 4;
+            for(let y=0; y<canvas.height; y+=step) {
+                for(let x=0; x<canvas.width; x+=step) {
+                    if(data[(y * canvas.width + x) * 4] > 128) {
+                        pts.push({ x: (x - 500) * 4.5, y: -(y - 200) * 4.5 });
+                    }
+                }
+            }
+            return pts.length > 0 ? pts : [{x:0, y:0}];
+        }
+
+        function changeColor(theme) {
+            const colors = geometry.attributes.color;
+            const color = new THREE.Color();
+            for (let i = 0; i < particleCount; i++) {
+                if (theme === 'CYAN') color.setHSL(0.52 + Math.random()*0.05, 0.9, 0.6);
+                else if (theme === 'FIRE') color.setHSL(0.02 + Math.random()*0.05, 1.0, 0.5);
+                else if (theme === 'GOLD') color.setHSL(0.12 + Math.random()*0.05, 0.8, 0.5);
+                colors.setXYZ(i, color.r, color.g, color.b);
+            }
+            colors.needsUpdate = true;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            const pos = geometry.attributes.position.array;
+            const speed = isMobile ? 0.08 : 0.05;
+
+            for (let i = 0; i < particleCount; i++) {
+                const idx = i * 3;
+                let tx = targetPositions[idx];
+                let ty = targetPositions[idx+1];
+                let tz = targetPositions[idx+2];
+
+                if (dispersionForce > 0.05) {
+                    tx *= (1 + dispersionForce * 2.5);
+                    ty *= (1 + dispersionForce * 2.5);
+                    tz *= (1 + dispersionForce * 2.5);
+                }
+
+                pos[idx] += (tx - pos[idx]) * speed;
+                pos[idx+1] += (ty - pos[idx+1]) * speed;
+                pos[idx+2] += (tz - pos[idx+2]) * speed;
+            }
+            geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        // MediaPipe Integration
+        let hands, cameraUtils;
+
+        async function toggleCamera() {
+            const video = document.getElementById('camera-preview');
+            const btn = document.getElementById('btn-cam');
+            const status = document.getElementById('gesture-status');
+
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                alert("手势感应需要 HTTPS 环境支持。"); return;
+            }
+
+            if (!isCameraActive) {
+                btn.innerText = "⏳ 连接中...";
+                try {
+                    hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+                    hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5 });
+                    hands.onResults(results => {
+                        if (results.multiHandLandmarks?.length > 0) {
+                            const lm = results.multiHandLandmarks[0];
+                            const dist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                            let target = dist > 0.18 ? 1.0 : 0.0;
+                            dispersionForce += (target - dispersionForce) * 0.2;
+                            status.innerText = target > 0.5 ? "✨ 能量爆发" : "🔒 磁场聚合";
+                        } else {
+                            dispersionForce *= 0.8;
+                            status.innerText = "👐 请展示手势";
+                        }
+                    });
+
+                    cameraUtils = new Camera(video, {
+                        onFrame: async () => await hands.send({image: video}),
+                        facingMode: 'user'
+                    });
+                    
+                    await cameraUtils.start();
+                    isCameraActive = true;
+                    video.style.display = "block";
+                    btn.innerText = "🛑 关闭感应";
+                    btn.classList.add('active');
+                } catch (e) {
+                    alert("启动失败: " + e.message);
+                    btn.innerText = "📷 开启手势感应";
+                }
+            } else {
+                location.reload(); // 移动端关闭摄像头最稳妥的方式
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        init();
+    </script>
+</body>
+</html>
